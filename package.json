@@ -1,6 +1,6 @@
 {
   "name": "homebridge-lg-thinqconnect-ac",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Homebridge plugin for LG ThinQ air conditioners using the official ThinQ Connect API",
   "main": "dist/index.js",
   "scripts": {

@@ -37,11 +37,14 @@ jobs:
           git push
 
       - name: Publish to npm
-        run: npm publish --access public
+        id: npm_publish
+        run: |
+          npm publish --access public && echo "published=true" >> $GITHUB_OUTPUT || echo "published=false" >> $GITHUB_OUTPUT
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
+        if: steps.npm_publish.outputs.published == 'true'
         run: |
           VERSION=$(node -p "require('./package.json').version")
           gh release create "v${VERSION}" \
