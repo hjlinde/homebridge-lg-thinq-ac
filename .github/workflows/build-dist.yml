@@ -1,4 +1,4 @@
-name: Build and Publish
+name: Build
 
 on:
   push:
@@ -9,10 +9,6 @@ on:
       - 'package.json'
   workflow_dispatch:
 
-permissions:
-  contents: write
-  id-token: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -22,26 +18,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
 
       - run: npm install
 
       - run: npm run build
-
-      - name: Publish to npm
-        id: npm_publish
-        run: |
-          npm publish --access public && echo "published=true" >> $GITHUB_OUTPUT || echo "published=false" >> $GITHUB_OUTPUT
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create GitHub Release
-        if: steps.npm_publish.outputs.published == 'true'
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          gh release create "v${VERSION}" \
-            --title "v${VERSION}" \
-            --notes "Release v${VERSION}" \
-            --latest
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
