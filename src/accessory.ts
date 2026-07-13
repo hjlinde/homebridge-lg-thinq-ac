@@ -322,14 +322,14 @@ export class AirConditionerAccessory {
             });
             this.state.mode = AC_MODE.FAN;
           } else if (this.state.mode === AC_MODE.FAN) {
-            // Only power off if fan-only was actually the active mode — must not
-            // turn off unrelated heating/cooling (mirrors "turning the linked Fan
-            // inactive forces the primary service inactive too," but scoped to
-            // when the Fan is in fact what's running).
-            await this.sendControl('FanOnly Power', {
-              operation: { airConOperationMode: AC_OPERATION.OFF },
+            // Turning this off means "stop running fan-only," not "turn off the
+            // AC" — revert to whichever Heat/Cool/Auto mode was active before,
+            // keeping the unit running.
+            await this.sendControl('FanOnly Mode', {
+              airConJobMode: { currentJobMode: this.state.lastConventionalMode },
             });
-            this.state.isOn = false;
+            this.state.mode = this.state.lastConventionalMode;
+            this.applyTempRangeProps(this.state.mode);
           }
           this.service.updateCharacteristic(
             Characteristic.Active, this.state.isOn ? Characteristic.Active.ACTIVE : Characteristic.Active.INACTIVE,
@@ -368,10 +368,14 @@ export class AirConditionerAccessory {
             });
             this.state.mode = AC_MODE.DRY;
           } else if (this.state.mode === AC_MODE.DRY) {
-            await this.sendControl('Dehumidify Power', {
-              operation: { airConOperationMode: AC_OPERATION.OFF },
+            // Turning this off means "stop dehumidifying," not "turn off the AC"
+            // — revert to whichever Heat/Cool/Auto mode was active before,
+            // keeping the unit running.
+            await this.sendControl('Dehumidify Mode', {
+              airConJobMode: { currentJobMode: this.state.lastConventionalMode },
             });
-            this.state.isOn = false;
+            this.state.mode = this.state.lastConventionalMode;
+            this.applyTempRangeProps(this.state.mode);
           }
           this.service.updateCharacteristic(
             Characteristic.Active, this.state.isOn ? Characteristic.Active.ACTIVE : Characteristic.Active.INACTIVE,
