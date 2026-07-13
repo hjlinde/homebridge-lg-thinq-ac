@@ -206,10 +206,18 @@ export class AirConditionerAccessory {
         .onGet(() => this.state.naturalWind)
         .onSet(async (value: CharacteristicValue) => {
           this.state.naturalWind = value as boolean;
-          const target = this.state.naturalWind ? 'NATURE' : this.state.windStrength;
-          await this.sendControl('NaturalWind', {
-            airFlow: { windStrengthDetail: target },
-          });
+          if (this.state.naturalWind) {
+            await this.sendControl('NaturalWind', {
+              airFlow: { windStrengthDetail: 'NATURE' },
+            });
+          } else {
+            // windStrengthDetail doesn't accept AUTO, so restore via windStrength
+            // instead (the device syncs windStrengthDetail to match automatically —
+            // confirmed against a live unit).
+            await this.sendControl('NaturalWind', {
+              airFlow: { windStrength: this.state.windStrength },
+            });
+          }
         });
     } else {
       const existing = this.accessory.getServiceById(Service.Switch, 'natural-wind');
