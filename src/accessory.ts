@@ -127,7 +127,7 @@ export class AirConditionerAccessory {
         this.state.isOn = value === Characteristic.Active.ACTIVE;
         await this.sendControl('Power', {
           operation: { airConOperationMode: this.state.isOn ? AC_OPERATION.ON : AC_OPERATION.OFF },
-        });
+        }, { requiresPower: false });
       });
 
     this.service.getCharacteristic(Characteristic.CurrentHeaterCoolerState)
@@ -250,9 +250,28 @@ export class AirConditionerAccessory {
    * so it was never affected. Queuing ensures only one control call to this
    * device is ever in flight at a time, regardless of how many characteristics
    * change together.
+   *
+   * `requiresPower` (default true) skips the call entirely if the unit is off
+   * at execution time — climate parameters (mode/temperature/swing/fan speed)
+   * are meaningless while off, and some units implicitly power back on when
+   * they receive one. This matters for exactly the same Scene scenario above:
+   * a "turn off" Scene's batch can include those other characteristics too,
+   * and forwarding them after the power-off would undo it. The check is read
+   * lazily when this call's turn in the queue actually runs (not when it's
+   * enqueued), so if Active's onSet already flipped `state.isOn` to false
+   * earlier in the same batch — synchronously, before any queued call has had
+   * a chance to execute — this correctly sees the final value regardless of
+   * which characteristic HomeKit happened to send first.
    */
-  private sendControl(label: string, body: Record<string, unknown>): Promise<void> {
+  private sendControl(
+    label: string, body: Record<string, unknown>, opts: { requiresPower?: boolean } = {},
+  ): Promise<void> {
+    const requiresPower = opts.requiresPower ?? true;
     const run = async () => {
+      if (requiresPower && !this.state.isOn) {
+        this.platform.log.info(`[${this.device.alias}] Skipping ${label} — device is off.`);
+        return;
+      }
       try {
         await this.platform.thinqApi.controlDevice(this.device.deviceId, body);
       } catch (err) {
