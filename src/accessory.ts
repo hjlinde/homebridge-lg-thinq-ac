@@ -289,22 +289,31 @@ export class AirConditionerAccessory {
             : Characteristic.Active.INACTIVE,
         )
         .onSet(async (value: CharacteristicValue) => {
+          // LG's API rejects a combined operation+airConJobMode body (error 2208),
+          // so this is two sequential single-purpose calls, matching the pattern
+          // already used by the main Power/Mode handlers. State is only mutated
+          // after each call actually succeeds, so a failure never leaves internal
+          // state claiming a mode change that didn't really happen on the device.
           if (value === Characteristic.Active.ACTIVE) {
-            this.state.mode = AC_MODE.FAN;
-            this.state.isOn = true;
-            await this.sendControl('FanOnly', {
-              operation: { airConOperationMode: AC_OPERATION.ON },
+            if (!this.state.isOn) {
+              await this.sendControl('FanOnly Power', {
+                operation: { airConOperationMode: AC_OPERATION.ON },
+              });
+              this.state.isOn = true;
+            }
+            await this.sendControl('FanOnly Mode', {
               airConJobMode: { currentJobMode: AC_MODE.FAN },
             });
+            this.state.mode = AC_MODE.FAN;
           } else if (this.state.mode === AC_MODE.FAN) {
             // Only power off if fan-only was actually the active mode — must not
             // turn off unrelated heating/cooling (mirrors "turning the linked Fan
             // inactive forces the primary service inactive too," but scoped to
             // when the Fan is in fact what's running).
-            this.state.isOn = false;
-            await this.sendControl('FanOnly', {
+            await this.sendControl('FanOnly Power', {
               operation: { airConOperationMode: AC_OPERATION.OFF },
             });
+            this.state.isOn = false;
           }
           this.service.updateCharacteristic(
             Characteristic.Active, this.state.isOn ? Characteristic.Active.ACTIVE : Characteristic.Active.INACTIVE,
@@ -336,18 +345,24 @@ export class AirConditionerAccessory {
       this.dehumidifyService.getCharacteristic(Characteristic.On)
         .onGet(() => this.state.isOn && this.state.mode === AC_MODE.DRY)
         .onSet(async (value: CharacteristicValue) => {
+          // See the Fan Only handler above for why this is two sequential calls
+          // with state only mutated after each one succeeds.
           if (value) {
-            this.state.mode = AC_MODE.DRY;
-            this.state.isOn = true;
-            await this.sendControl('Dehumidify', {
-              operation: { airConOperationMode: AC_OPERATION.ON },
+            if (!this.state.isOn) {
+              await this.sendControl('Dehumidify Power', {
+                operation: { airConOperationMode: AC_OPERATION.ON },
+              });
+              this.state.isOn = true;
+            }
+            await this.sendControl('Dehumidify Mode', {
               airConJobMode: { currentJobMode: AC_MODE.DRY },
             });
+            this.state.mode = AC_MODE.DRY;
           } else if (this.state.mode === AC_MODE.DRY) {
-            this.state.isOn = false;
-            await this.sendControl('Dehumidify', {
+            await this.sendControl('Dehumidify Power', {
               operation: { airConOperationMode: AC_OPERATION.OFF },
             });
+            this.state.isOn = false;
           }
           this.service.updateCharacteristic(
             Characteristic.Active, this.state.isOn ? Characteristic.Active.ACTIVE : Characteristic.Active.INACTIVE,
