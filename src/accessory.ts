@@ -59,6 +59,8 @@ export class AirConditionerAccessory {
   private readonly service: Service;
   private readonly caps: Capabilities;
   private windStrengthPct: Record<string, number> = WIND_STRENGTH_TO_PCT;
+  /** Chains sendControl() calls so only one hits LG's API at a time — see sendControl(). */
+  private controlQueue: Promise<void> = Promise.resolve();
   private state: AcState = {
     isOn: false,
     mode: AC_MODE.COOL,
@@ -235,15 +237,35 @@ export class AirConditionerAccessory {
   }
 
   /** Sends a control command and logs LG's actual error detail on failure. */
-  private async sendControl(label: string, body: Record<string, unknown>) {
-    try {
-      await this.platform.thinqApi.controlDevice(this.device.deviceId, body);
-    } catch (err) {
-      this.platform.log.error(
-        `[${this.device.alias}] ${label} control failed: ${controlErrorDetail(err)}`,
-      );
-      throw err; // let HomeKit surface "No Response" for this characteristic
-    }
+  /**
+   * Sends a control command and logs LG's actual error detail on failure.
+   *
+   * Calls are serialized per device via `controlQueue`: a HomeKit Scene sets
+   * several characteristics at once (e.g. Active, both temperature thresholds,
+   * SwingMode, RotationSpeed), and HAP-NodeJS fires all of those onSet handlers
+   * essentially simultaneously. Without serialization, that sends several
+   * overlapping requests to LG's API at once — which it appears to reject
+   * outright (a generic "Fail device control" error), even though each request
+   * is individually valid. A single tap only ever changes one characteristic,
+   * so it was never affected. Queuing ensures only one control call to this
+   * device is ever in flight at a time, regardless of how many characteristics
+   * change together.
+   */
+  private sendControl(label: string, body: Record<string, unknown>): Promise<void> {
+    const run = async () => {
+      try {
+        await this.platform.thinqApi.controlDevice(this.device.deviceId, body);
+      } catch (err) {
+        this.platform.log.error(
+          `[${this.device.alias}] ${label} control failed: ${controlErrorDetail(err)}`,
+        );
+        throw err; // let HomeKit surface "No Response" for this characteristic
+      }
+    };
+    const result = this.controlQueue.then(run, run);
+    // The queue tail must never reject, or the next queued call would never run.
+    this.controlQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
