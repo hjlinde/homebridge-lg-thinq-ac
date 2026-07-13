@@ -40,11 +40,21 @@ Restart Homebridge after saving the configuration. Your air conditioners will ap
 ## Supported Features
 
 - Power on/off
-- Mode selection (Cool, Heat, Auto)
-- Target temperature
+- Mode selection (Cool, Heat, Auto, Fan-only, Dehumidify)
+- Target temperature, with per-mode ranges (Heat: 16-30°C, Cool/Auto: 18-30°C, 0.5° steps)
 - Current temperature (read-only)
-- Fan speed
+- Fan speed (available both on the main tile and the Fan-only tile)
 - Vertical swing
+- Horizontal swing
+- Natural Wind toggle
+- Fault status
+
+Fan-only and Dehumidify modes, and horizontal swing, don't fit into HomeKit's
+built-in Heater/Cooler controls, so each shows up as its own linked accessory
+tile (e.g. "Fan Only", "Dehumidify", "Horizontal Swing", "Natural Wind") next
+to the main climate tile — this is expected, not a bug. The main climate tile
+is pinned as the accessory's primary control, so a glance at the room view
+always shows the AC's actual state, with the auxiliary controls one tap away.
 
 ## How It Works
 

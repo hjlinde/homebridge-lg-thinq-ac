@@ -1,17 +1,17 @@
 export const PLUGIN_NAME = 'homebridge-lg-thinqconnect-ac';
 export const PLATFORM_NAME = 'LgThinQAc';
 
-// TODO: verify these enum values against a live asyncGetDeviceStatus() response
+// Verified against docs/aircon-profile-response.json's airConJobMode.currentJobMode enum.
 export const AC_MODE = {
   COOL: 'COOL',
   HEAT: 'HEAT',
   FAN:  'FAN',
-  DRY:  'DRY',
+  DRY:  'AIR_DRY',
   AUTO: 'AUTO',
 } as const;
 export type AcMode = typeof AC_MODE[keyof typeof AC_MODE];
 
-// TODO: verify operation enum values (might be 'POWER_ON'/'POWER_OFF' or 'ON'/'OFF')
+// Verified against docs/aircon-profile-response.json's operation.airConOperationMode enum.
 export const AC_OPERATION = {
   ON:  'POWER_ON',
   OFF: 'POWER_OFF',
