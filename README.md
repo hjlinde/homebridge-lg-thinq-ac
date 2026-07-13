@@ -66,7 +66,7 @@ The plugin polls the LG ThinQ Connect API every 60 seconds to sync device state 
 
 | Region | Countries |
 |--------|-----------|
-| Europe | DE, AT, CH, FR, GB, IT, ES, NL, PL, and most European countries |
+| Europe, Middle East & Africa | DE, AT, CH, FR, GB, IT, ES, NL, PL, and most other countries in the region |
 | Americas | US, CA, MX, BR, CL, CO, AR |
 | Asia/Pacific | KR, JP, AU, NZ, TW, SG, TH, MY, ID, PH, VN, IN, CN |
 
