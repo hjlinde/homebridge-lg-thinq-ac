@@ -137,18 +137,23 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
         );
       }
 
+      // Short, function-only names (not prefixed with the device alias) so they
+      // don't get truncated to indistinguishable "<alias>..." labels in Home's
+      // tile view. If you have multiple AC units, their aux accessories will
+      // share these same short names, disambiguated only by whichever room you
+      // place them in.
       const caps = parseCapabilities(profile);
       const fanOnly = this.resolveAuxAccessory(
-        device, 'fan-only', `${device.alias} Fan Only`, !!caps.modes?.has(AC_MODE.FAN),
+        device, 'fan-only', 'Fan Only', !!caps.modes?.has(AC_MODE.FAN),
       );
       const dehumidify = this.resolveAuxAccessory(
-        device, 'dehumidify', `${device.alias} Dehumidify`, !!caps.modes?.has(AC_MODE.DRY),
+        device, 'dehumidify', 'Dehumidify', !!caps.modes?.has(AC_MODE.DRY),
       );
       const horizontalSwing = this.resolveAuxAccessory(
-        device, 'horizontal-swing', `${device.alias} Horizontal Swing`, caps.swingLeftRight,
+        device, 'horizontal-swing', 'Horizontal Swing', caps.swingLeftRight,
       );
       const naturalWind = this.resolveAuxAccessory(
-        device, 'natural-wind', `${device.alias} Natural Wind`, caps.naturalWind,
+        device, 'natural-wind', 'Natural Wind', caps.naturalWind,
       );
       const auxAccessories: AuxAccessories = { fanOnly, dehumidify, horizontalSwing, naturalWind };
 

@@ -43,7 +43,7 @@ Restart Homebridge after saving the configuration. Your air conditioners will ap
 - Mode selection (Cool, Heat, Auto, Fan-only, Dehumidify)
 - Target temperature, with per-mode ranges (Heat: 16-30°C, Cool/Auto: 18-30°C, 0.5° steps)
 - Current temperature (read-only)
-- Fan speed (available both on the main tile and the Fan-only tile)
+- Fan speed (main tile only — Fan Only and Dehumidify are pure mode toggles and don't touch fan speed)
 - Vertical swing
 - Horizontal swing
 - Natural Wind toggle

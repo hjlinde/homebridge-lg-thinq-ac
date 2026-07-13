@@ -250,8 +250,8 @@ export class AirConditionerAccessory {
     if (this.auxAccessories.horizontalSwing) {
       const auxAccessory = this.auxAccessories.horizontalSwing;
       this.horizontalSwingService = auxAccessory.getService(Service.Switch)
-        ?? auxAccessory.addService(Service.Switch, `${device.alias} Horizontal Swing`);
-      this.horizontalSwingService.setCharacteristic(Characteristic.Name, `${device.alias} Horizontal Swing`);
+        ?? auxAccessory.addService(Service.Switch, 'Horizontal Swing');
+      this.horizontalSwingService.setCharacteristic(Characteristic.Name, 'Horizontal Swing');
       this.horizontalSwingService.getCharacteristic(Characteristic.On)
         .onGet(() => this.state.swingLeftRight)
         .onSet(async (value: CharacteristicValue) => {
@@ -267,8 +267,8 @@ export class AirConditionerAccessory {
     if (this.auxAccessories.naturalWind) {
       const auxAccessory = this.auxAccessories.naturalWind;
       this.naturalWindService = auxAccessory.getService(Service.Switch)
-        ?? auxAccessory.addService(Service.Switch, `${device.alias} Natural Wind`);
-      this.naturalWindService.setCharacteristic(Characteristic.Name, `${device.alias} Natural Wind`);
+        ?? auxAccessory.addService(Service.Switch, 'Natural Wind');
+      this.naturalWindService.setCharacteristic(Characteristic.Name, 'Natural Wind');
       this.naturalWindService.getCharacteristic(Characteristic.On)
         .onGet(() => this.state.naturalWind)
         .onSet(async (value: CharacteristicValue) => {
@@ -295,8 +295,8 @@ export class AirConditionerAccessory {
     if (this.auxAccessories.fanOnly) {
       const auxAccessory = this.auxAccessories.fanOnly;
       this.fanService = auxAccessory.getService(Service.Fanv2)
-        ?? auxAccessory.addService(Service.Fanv2, `${device.alias} Fan Only`);
-      this.fanService.setCharacteristic(Characteristic.Name, `${device.alias} Fan Only`);
+        ?? auxAccessory.addService(Service.Fanv2, 'Fan Only');
+      this.fanService.setCharacteristic(Characteristic.Name, 'Fan Only');
 
       this.fanService.getCharacteristic(Characteristic.Active)
         .onGet(() =>
@@ -339,13 +339,6 @@ export class AirConditionerAccessory {
           );
           this.syncAuxServiceCharacteristics();
         });
-
-      if (caps.windStrength) {
-        this.fanService.getCharacteristic(Characteristic.RotationSpeed)
-          .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
-          .onGet(() => this.windStrengthPct[this.state.windStrength] ?? 100)
-          .onSet(async (value: CharacteristicValue) => this.setWindStrengthFromPct(value));
-      }
     }
 
     // Dehumidify mode: same rationale as Fan-only above. Modeled as a Switch
@@ -355,8 +348,8 @@ export class AirConditionerAccessory {
     if (this.auxAccessories.dehumidify) {
       const auxAccessory = this.auxAccessories.dehumidify;
       this.dehumidifyService = auxAccessory.getService(Service.Switch)
-        ?? auxAccessory.addService(Service.Switch, `${device.alias} Dehumidify`);
-      this.dehumidifyService.setCharacteristic(Characteristic.Name, `${device.alias} Dehumidify`);
+        ?? auxAccessory.addService(Service.Switch, 'Dehumidify');
+      this.dehumidifyService.setCharacteristic(Characteristic.Name, 'Dehumidify');
 
       this.dehumidifyService.getCharacteristic(Characteristic.On)
         .onGet(() => this.state.isOn && this.state.mode === AC_MODE.DRY)
@@ -444,7 +437,7 @@ export class AirConditionerAccessory {
     return Characteristic.CurrentHeaterCoolerState.IDLE;
   }
 
-  /** Shared by the HeaterCooler's and the Fan-only service's RotationSpeed handlers. */
+  /** Backs the HeaterCooler's RotationSpeed handler. */
   private async setWindStrengthFromPct(value: CharacteristicValue) {
     const strength = pctToWindStrength(value as number, this.windStrengthPct);
     this.state.windStrength = strength;
@@ -553,11 +546,6 @@ export class AirConditionerAccessory {
       this.state.windStrength = windStrength;
       if (this.service.testCharacteristic(Characteristic.RotationSpeed)) {
         this.service.updateCharacteristic(
-          Characteristic.RotationSpeed, this.windStrengthPct[windStrength] ?? 100,
-        );
-      }
-      if (this.fanService?.testCharacteristic(Characteristic.RotationSpeed)) {
-        this.fanService.updateCharacteristic(
           Characteristic.RotationSpeed, this.windStrengthPct[windStrength] ?? 100,
         );
       }
