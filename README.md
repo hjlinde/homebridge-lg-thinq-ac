@@ -39,23 +39,24 @@ Restart Homebridge after saving the configuration. Your air conditioners will ap
 
 ## Supported Features
 
+This plugin sticks to Apple's native HomeKit `HeaterCooler` model — one accessory,
+one set of standard climate controls, nothing bolted on:
+
 - Power on/off
-- Mode selection (Cool, Heat, Auto, Fan-only, Dehumidify)
+- Mode selection (Cool, Heat, Auto)
 - Target temperature, with per-mode ranges (Heat: 16-30°C, Cool/Auto: 18-30°C, 0.5° steps)
 - Current temperature (read-only)
-- Fan speed (main tile only — Fan Only and Dehumidify are pure mode toggles and don't touch fan speed)
-- Vertical swing
-- Horizontal swing
-- Natural Wind toggle
+- Fan speed, snapped to the device's real named speeds (e.g. Low/Medium/High/Auto
+  map to clean 25/50/75/100% slider steps, not an arbitrary continuous range)
+- Swing
 - Fault status
 
-Fan-only and Dehumidify modes, and horizontal swing, don't fit into HomeKit's
-built-in Heater/Cooler controls, so each is published as its own separate
-accessory (e.g. "Fan Only", "Dehumidify", "Horizontal Swing", "Natural Wind")
-alongside the main climate accessory — this is expected, not a bug, and is the
-only way HomeKit reliably shows a distinct name for each control (services on
-one accessory all display the accessory's own name in the Home app). Assigning
-all of them to the same room in the Home app groups their tiles together.
+Fan-only, Dehumidify, and independently-controllable horizontal swing exist on
+some LG models but don't fit into HomeKit's `HeaterCooler` characteristics — an
+earlier version of this plugin tried representing them as extra accessories,
+but that didn't render reliably in the Home app and isn't scalable across
+multiple AC units, so it's been dropped in favor of staying within what
+HomeKit natively supports.
 
 ## How It Works
 

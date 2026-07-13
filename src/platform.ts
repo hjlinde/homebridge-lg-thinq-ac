@@ -9,14 +9,22 @@ import {
   Characteristic,
 } from 'homebridge';
 import { v4 as uuidv4 } from 'uuid';
-import { PLUGIN_NAME, PLATFORM_NAME, AC_MODE } from './settings';
-import { AirConditionerAccessory, parseCapabilities, AuxAccessories } from './accessory';
+import { PLUGIN_NAME, PLATFORM_NAME } from './settings';
+import { AirConditionerAccessory } from './accessory';
 import { ThinQApi, DeviceInfo, httpStatus, isTransient } from './api';
 
 const AC_DEVICE_TYPE = 'DEVICE_AIR_CONDITIONER';
 const POLL_INTERVAL_MS = 60_000;
 // Upper bound for exponential backoff after repeated transient poll failures.
 const MAX_BACKOFF_MS = 15 * 60_000;
+
+// Subtypes used by an earlier version of this plugin for Fan Only/Dehumidify/
+// Horizontal Swing/Natural Wind, each published as its own accessory. That
+// approach didn't render well in Home and isn't scalable across multiple AC
+// units, so it's been dropped in favor of Apple's native HeaterCooler model
+// only — this list is used once to clean up any such accessories still
+// registered from that experiment.
+const RETIRED_AUX_KINDS = ['fan-only', 'dehumidify', 'horizontal-swing', 'natural-wind'];
 
 interface BackoffState {
   failures: number;
@@ -59,46 +67,17 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
     this.cachedAccessories.set(accessory.UUID, accessory);
   }
 
-  /**
-   * Fan Only, Dehumidify, Horizontal Swing, and Natural Wind are each their own
-   * HomeKit accessory (see AuxAccessories in accessory.ts for why) — this
-   * creates/reuses/unregisters one of them based on whether the device's
-   * capabilities currently call for it.
-   */
-  private resolveAuxAccessory(
-    device: DeviceInfo, kind: string, displayName: string, category: Categories, needed: boolean,
-  ): PlatformAccessory | undefined {
-    const uuid = this.api.hap.uuid.generate(`${device.deviceId}:${kind}`);
-    const existing = this.cachedAccessories.get(uuid);
-
-    if (!needed) {
+  /** Removes any Fan Only/Dehumidify/Horizontal Swing/Natural Wind accessory
+   * left over from the earlier separate-accessories experiment. */
+  private cleanupRetiredAuxAccessories(device: DeviceInfo) {
+    for (const kind of RETIRED_AUX_KINDS) {
+      const uuid = this.api.hap.uuid.generate(`${device.deviceId}:${kind}`);
+      const existing = this.cachedAccessories.get(uuid);
       if (existing) {
         this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [existing]);
         this.cachedAccessories.delete(uuid);
       }
-      return undefined;
     }
-
-    const accessory = existing ?? new this.api.platformAccessory(displayName, uuid, category);
-    accessory.category = category;
-    accessory.context['device'] = device;
-    const info = accessory.getService(this.Service.AccessoryInformation)
-      ?? accessory.addService(this.Service.AccessoryInformation);
-    // Reuse the same serial as the main accessory (deviceId is already at HAP's
-    // 64-char SerialNumber limit, so a per-kind suffix would overflow it) — these
-    // accessories represent facets of the same physical unit, so sharing a serial
-    // is harmless and arguably more accurate than inventing distinct ones.
-    info.setCharacteristic(this.Characteristic.Manufacturer, 'LG')
-      .setCharacteristic(this.Characteristic.Model, device.modelName || 'AC')
-      .setCharacteristic(this.Characteristic.SerialNumber, device.deviceId);
-
-    if (existing) {
-      this.api.updatePlatformAccessories([accessory]);
-    } else {
-      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-      this.cachedAccessories.set(uuid, accessory);
-    }
-    return accessory;
   }
 
   private async initialize() {
@@ -129,6 +108,8 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
       accessory.category = Categories.AIR_CONDITIONER;
       accessory.context['device'] = device;
 
+      this.cleanupRetiredAuxAccessories(device);
+
       // Fetch the profile so the accessory only exposes supported features.
       // On failure we pass no profile and the accessory exposes everything.
       let profile: Record<string, unknown> | undefined;
@@ -140,27 +121,7 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
         );
       }
 
-      // Short, function-only names (not prefixed with the device alias) so they
-      // don't get truncated to indistinguishable "<alias>..." labels in Home's
-      // tile view. If you have multiple AC units, their aux accessories will
-      // share these same short names, disambiguated only by whichever room you
-      // place them in.
-      const caps = parseCapabilities(profile);
-      const fanOnly = this.resolveAuxAccessory(
-        device, 'fan-only', 'Fan Only', Categories.FAN, !!caps.modes?.has(AC_MODE.FAN),
-      );
-      const dehumidify = this.resolveAuxAccessory(
-        device, 'dehumidify', 'Dehumidify', Categories.SWITCH, !!caps.modes?.has(AC_MODE.DRY),
-      );
-      const horizontalSwing = this.resolveAuxAccessory(
-        device, 'horizontal-swing', 'Horizontal Swing', Categories.SWITCH, caps.swingLeftRight,
-      );
-      const naturalWind = this.resolveAuxAccessory(
-        device, 'natural-wind', 'Natural Wind', Categories.SWITCH, caps.naturalWind,
-      );
-      const auxAccessories: AuxAccessories = { fanOnly, dehumidify, horizontalSwing, naturalWind };
-
-      const acAccessory = new AirConditionerAccessory(this, accessory, device, caps, auxAccessories);
+      const acAccessory = new AirConditionerAccessory(this, accessory, device, profile);
       this.deviceAccessories.set(device.deviceId, acAccessory);
 
       if (existingAccessory) {

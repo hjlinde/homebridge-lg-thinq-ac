@@ -31,8 +31,8 @@ export type AcWindStrength = typeof AC_WIND_STRENGTH[keyof typeof AC_WIND_STRENG
 export const TEMPERATURE_MIN_C = 18;
 export const TEMPERATURE_MAX_C = 30;
 
-// Canonical low→high ordering of the non-AUTO wind strength steps. AUTO is handled
-// separately (always pinned to 100%) since it isn't a point on the low/high scale.
+// Canonical low→high ordering of the non-AUTO wind strength steps. AUTO is always
+// treated as the last (highest) step on the scale.
 const WIND_STRENGTH_ORDER: AcWindStrength[] = [
   AC_WIND_STRENGTH.LOW,
   AC_WIND_STRENGTH.LOW_MID,
@@ -50,18 +50,20 @@ export const WIND_STRENGTH_TO_PCT: Record<string, number> = buildWindStrengthPct
 /**
  * Builds a wind-strength → HomeKit RotationSpeed percentage table from the set of
  * values a device's profile actually declares writable, so we never send an enum
- * value (e.g. MID_HIGH) the device doesn't support. Non-AUTO steps are spread
- * evenly low→high; AUTO (if present) is pinned to 100%.
+ * value (e.g. MID_HIGH) the device doesn't support. Every step (AUTO included)
+ * gets an even 1/N share of 0-100 — e.g. a standard LOW/MID/HIGH/AUTO device maps
+ * cleanly to 25/50/75/100, matching the device's real, named speed steps rather
+ * than an arbitrary continuous range.
  */
 export function buildWindStrengthPctTable(writableValues: string[]): Record<string, number> {
   const steps = WIND_STRENGTH_ORDER.filter(v => writableValues.includes(v));
+  const ordered = writableValues.includes(AC_WIND_STRENGTH.AUTO)
+    ? [...steps, AC_WIND_STRENGTH.AUTO]
+    : steps;
   const table: Record<string, number> = {};
-  steps.forEach((v, i) => {
-    table[v] = steps.length === 1 ? 50 : Math.round(((i + 1) / steps.length) * 90);
+  ordered.forEach((v, i) => {
+    table[v] = Math.round(((i + 1) / ordered.length) * 100);
   });
-  if (writableValues.includes(AC_WIND_STRENGTH.AUTO)) {
-    table[AC_WIND_STRENGTH.AUTO] = 100;
-  }
   return table;
 }
 
@@ -75,4 +77,12 @@ export function pctToWindStrength(pct: number, table: Record<string, number>): A
     }
   }
   return best[0] as AcWindStrength;
+}
+
+/** The RotationSpeed minStep that makes HomeKit's slider snap exactly to each named
+ * speed in `table` (e.g. 25 for a 4-step LOW/MID/HIGH/AUTO device), so users only
+ * ever land on a real speed instead of an arbitrary in-between value. */
+export function windStrengthMinStep(table: Record<string, number>): number {
+  const count = Object.keys(table).length;
+  return count > 0 ? Math.round(100 / count) : 1;
 }
