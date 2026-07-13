@@ -126,6 +126,22 @@ export class AirConditionerAccessory {
 
     this.service.setCharacteristic(Characteristic.Name, device.alias);
 
+    // Fan Only/Dehumidify/Horizontal Swing/Natural Wind used to be added directly
+    // onto this accessory (with these subtypes) before they moved to their own
+    // separate accessories. Clean up any leftovers from that older layout — left
+    // in place, their RotationSpeed/SwingMode characteristics duplicate the
+    // HeaterCooler's own and can make Home render a degraded, merged view.
+    const staleFanOnly = this.accessory.getServiceById(Service.Fanv2, 'fan-only');
+    if (staleFanOnly) {
+      this.accessory.removeService(staleFanOnly);
+    }
+    for (const subtype of ['dehumidify', 'horizontal-swing', 'natural-wind']) {
+      const stale = this.accessory.getServiceById(Service.Switch, subtype);
+      if (stale) {
+        this.accessory.removeService(stale);
+      }
+    }
+
     this.service.getCharacteristic(Characteristic.Active)
       .onGet(() =>
         this.state.isOn ? Characteristic.Active.ACTIVE : Characteristic.Active.INACTIVE,
