@@ -1,5 +1,6 @@
 import {
   API,
+  Categories,
   DynamicPlatformPlugin,
   Logger,
   PlatformAccessory,
@@ -65,7 +66,7 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
    * capabilities currently call for it.
    */
   private resolveAuxAccessory(
-    device: DeviceInfo, kind: string, displayName: string, needed: boolean,
+    device: DeviceInfo, kind: string, displayName: string, category: Categories, needed: boolean,
   ): PlatformAccessory | undefined {
     const uuid = this.api.hap.uuid.generate(`${device.deviceId}:${kind}`);
     const existing = this.cachedAccessories.get(uuid);
@@ -78,7 +79,8 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
       return undefined;
     }
 
-    const accessory = existing ?? new this.api.platformAccessory(displayName, uuid);
+    const accessory = existing ?? new this.api.platformAccessory(displayName, uuid, category);
+    accessory.category = category;
     accessory.context['device'] = device;
     const info = accessory.getService(this.Service.AccessoryInformation)
       ?? accessory.addService(this.Service.AccessoryInformation);
@@ -122,8 +124,9 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
       const uuid = this.api.hap.uuid.generate(device.deviceId);
       const existingAccessory = this.cachedAccessories.get(uuid);
       const accessory = existingAccessory
-        ?? new this.api.platformAccessory(device.alias || device.deviceId, uuid);
+        ?? new this.api.platformAccessory(device.alias || device.deviceId, uuid, Categories.AIR_CONDITIONER);
 
+      accessory.category = Categories.AIR_CONDITIONER;
       accessory.context['device'] = device;
 
       // Fetch the profile so the accessory only exposes supported features.
@@ -144,16 +147,16 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
       // place them in.
       const caps = parseCapabilities(profile);
       const fanOnly = this.resolveAuxAccessory(
-        device, 'fan-only', 'Fan Only', !!caps.modes?.has(AC_MODE.FAN),
+        device, 'fan-only', 'Fan Only', Categories.FAN, !!caps.modes?.has(AC_MODE.FAN),
       );
       const dehumidify = this.resolveAuxAccessory(
-        device, 'dehumidify', 'Dehumidify', !!caps.modes?.has(AC_MODE.DRY),
+        device, 'dehumidify', 'Dehumidify', Categories.SWITCH, !!caps.modes?.has(AC_MODE.DRY),
       );
       const horizontalSwing = this.resolveAuxAccessory(
-        device, 'horizontal-swing', 'Horizontal Swing', caps.swingLeftRight,
+        device, 'horizontal-swing', 'Horizontal Swing', Categories.SWITCH, caps.swingLeftRight,
       );
       const naturalWind = this.resolveAuxAccessory(
-        device, 'natural-wind', 'Natural Wind', caps.naturalWind,
+        device, 'natural-wind', 'Natural Wind', Categories.SWITCH, caps.naturalWind,
       );
       const auxAccessories: AuxAccessories = { fanOnly, dehumidify, horizontalSwing, naturalWind };
 
