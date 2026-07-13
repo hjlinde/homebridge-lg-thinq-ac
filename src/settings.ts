@@ -31,21 +31,48 @@ export type AcWindStrength = typeof AC_WIND_STRENGTH[keyof typeof AC_WIND_STRENG
 export const TEMPERATURE_MIN_C = 18;
 export const TEMPERATURE_MAX_C = 30;
 
-// Maps wind strength enum → HomeKit RotationSpeed percentage
-export const WIND_STRENGTH_TO_PCT: Record<string, number> = {
-  [AC_WIND_STRENGTH.AUTO]:     100,
-  [AC_WIND_STRENGTH.HIGH]:      80,
-  [AC_WIND_STRENGTH.MID_HIGH]:  65,
-  [AC_WIND_STRENGTH.MID]:       50,
-  [AC_WIND_STRENGTH.LOW_MID]:   35,
-  [AC_WIND_STRENGTH.LOW]:       20,
-};
+// Canonical low→high ordering of the non-AUTO wind strength steps. AUTO is handled
+// separately (always pinned to 100%) since it isn't a point on the low/high scale.
+const WIND_STRENGTH_ORDER: AcWindStrength[] = [
+  AC_WIND_STRENGTH.LOW,
+  AC_WIND_STRENGTH.LOW_MID,
+  AC_WIND_STRENGTH.MID,
+  AC_WIND_STRENGTH.MID_HIGH,
+  AC_WIND_STRENGTH.HIGH,
+];
 
-export function pctToWindStrength(pct: number): AcWindStrength {
-  if (pct >= 90) return AC_WIND_STRENGTH.AUTO;
-  if (pct >= 70) return AC_WIND_STRENGTH.HIGH;
-  if (pct >= 55) return AC_WIND_STRENGTH.MID_HIGH;
-  if (pct >= 40) return AC_WIND_STRENGTH.MID;
-  if (pct >= 25) return AC_WIND_STRENGTH.LOW_MID;
-  return AC_WIND_STRENGTH.LOW;
+// Default table used when a device's profile is unavailable (previous behaviour:
+// expose the full 6-step range).
+export const WIND_STRENGTH_TO_PCT: Record<string, number> = buildWindStrengthPctTable(
+  Object.values(AC_WIND_STRENGTH),
+);
+
+/**
+ * Builds a wind-strength → HomeKit RotationSpeed percentage table from the set of
+ * values a device's profile actually declares writable, so we never send an enum
+ * value (e.g. MID_HIGH) the device doesn't support. Non-AUTO steps are spread
+ * evenly low→high; AUTO (if present) is pinned to 100%.
+ */
+export function buildWindStrengthPctTable(writableValues: string[]): Record<string, number> {
+  const steps = WIND_STRENGTH_ORDER.filter(v => writableValues.includes(v));
+  const table: Record<string, number> = {};
+  steps.forEach((v, i) => {
+    table[v] = steps.length === 1 ? 50 : Math.round(((i + 1) / steps.length) * 90);
+  });
+  if (writableValues.includes(AC_WIND_STRENGTH.AUTO)) {
+    table[AC_WIND_STRENGTH.AUTO] = 100;
+  }
+  return table;
+}
+
+/** Finds the wind-strength enum value in `table` whose percentage is closest to `pct`. */
+export function pctToWindStrength(pct: number, table: Record<string, number>): AcWindStrength {
+  const entries = Object.entries(table);
+  let best = entries[0];
+  for (const entry of entries) {
+    if (Math.abs(entry[1] - pct) < Math.abs(best[1] - pct)) {
+      best = entry;
+    }
+  }
+  return best[0] as AcWindStrength;
 }

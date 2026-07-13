@@ -11,6 +11,7 @@ import {
   TEMPERATURE_MIN_C,
   TEMPERATURE_MAX_C,
   WIND_STRENGTH_TO_PCT,
+  buildWindStrengthPctTable,
   pctToWindStrength,
 } from './settings';
 
@@ -21,6 +22,8 @@ interface AcState {
   targetTempC: number;
   windStrength: string;
   swingUpDown: boolean;
+  hasFault: boolean;
+  naturalWind: boolean;
 }
 
 /**
@@ -32,13 +35,18 @@ interface AcState {
  */
 interface Capabilities {
   hasProfile: boolean;
-  swing: boolean;
+  swingUpDown: boolean;
+  swingLeftRight: boolean;
   windStrength: boolean;
+  windStrengthValues?: string[];
+  naturalWind: boolean;
   modes?: Set<string>;
 }
 
 export class AirConditionerAccessory {
   private readonly service: Service;
+  private naturalWindService?: Service;
+  private windStrengthPct: Record<string, number> = WIND_STRENGTH_TO_PCT;
   private state: AcState = {
     isOn: false,
     mode: AC_MODE.COOL,
@@ -46,6 +54,8 @@ export class AirConditionerAccessory {
     targetTempC: 22,
     windStrength: 'AUTO',
     swingUpDown: false,
+    hasFault: false,
+    naturalWind: false,
   };
 
   constructor(
@@ -56,9 +66,15 @@ export class AirConditionerAccessory {
   ) {
     const { Service, Characteristic } = platform;
     const caps = parseCapabilities(profile);
+    const swing = caps.swingUpDown || caps.swingLeftRight;
+    const windStrengthPct = caps.windStrengthValues
+      ? buildWindStrengthPctTable(caps.windStrengthValues)
+      : WIND_STRENGTH_TO_PCT;
+    this.windStrengthPct = windStrengthPct;
 
     this.platform.log.info(
-      `[${device.alias}] Capabilities: swing=${caps.swing}, windStrength=${caps.windStrength}, `
+      `[${device.alias}] Capabilities: swing=${swing} (upDown=${caps.swingUpDown}, `
+      + `leftRight=${caps.swingLeftRight}), windStrength=${caps.windStrength}, `
       + `modes=${caps.modes ? [...caps.modes].join('/') : 'unknown'}`
       + (caps.hasProfile ? '' : ' (no profile — exposing all features)'),
     );
@@ -137,15 +153,21 @@ export class AirConditionerAccessory {
         });
       });
 
+    this.service.getCharacteristic(Characteristic.StatusFault)
+      .onGet(() => this.state.hasFault
+        ? Characteristic.StatusFault.GENERAL_FAULT
+        : Characteristic.StatusFault.NO_FAULT,
+      );
+
     // RotationSpeed and SwingMode are optional characteristics: only expose them
     // when the device supports them, and strip them from cached accessories that
     // no longer (or never did) support them so stale controls stop erroring.
     if (caps.windStrength) {
       this.service.getCharacteristic(Characteristic.RotationSpeed)
         .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
-        .onGet(() => WIND_STRENGTH_TO_PCT[this.state.windStrength] ?? 100)
+        .onGet(() => this.windStrengthPct[this.state.windStrength] ?? 100)
         .onSet(async (value: CharacteristicValue) => {
-          const strength = pctToWindStrength(value as number);
+          const strength = pctToWindStrength(value as number, this.windStrengthPct);
           this.state.windStrength = strength;
           await this.sendControl('WindStrength', {
             airFlow: { windStrength: strength },
@@ -155,7 +177,7 @@ export class AirConditionerAccessory {
       this.removeCharacteristicIfPresent(Characteristic.RotationSpeed);
     }
 
-    if (caps.swing) {
+    if (swing) {
       this.service.getCharacteristic(Characteristic.SwingMode)
         .onGet(() =>
           this.state.swingUpDown
@@ -163,13 +185,37 @@ export class AirConditionerAccessory {
             : Characteristic.SwingMode.SWING_DISABLED,
         )
         .onSet(async (value: CharacteristicValue) => {
-          this.state.swingUpDown = value === Characteristic.SwingMode.SWING_ENABLED;
-          await this.sendControl('SwingMode', {
-            windDirection: { windRotateUpDown: this.state.swingUpDown },
-          });
+          const enabled = value === Characteristic.SwingMode.SWING_ENABLED;
+          this.state.swingUpDown = enabled;
+          const windDirection: Record<string, boolean> = {};
+          if (caps.swingUpDown) windDirection['rotateUpDown'] = enabled;
+          if (caps.swingLeftRight) windDirection['rotateLeftRight'] = enabled;
+          await this.sendControl('SwingMode', { windDirection });
         });
     } else {
       this.removeCharacteristicIfPresent(Characteristic.SwingMode);
+    }
+
+    // Natural Wind is a separate LG "wind style" setting, not reachable via the
+    // RotationSpeed slider, so it gets its own Switch service.
+    if (caps.naturalWind) {
+      this.naturalWindService = this.accessory.getServiceById(Service.Switch, 'natural-wind')
+        ?? this.accessory.addService(Service.Switch, `${device.alias} Natural Wind`, 'natural-wind');
+      this.naturalWindService.setCharacteristic(Characteristic.Name, `${device.alias} Natural Wind`);
+      this.naturalWindService.getCharacteristic(Characteristic.On)
+        .onGet(() => this.state.naturalWind)
+        .onSet(async (value: CharacteristicValue) => {
+          this.state.naturalWind = value as boolean;
+          const target = this.state.naturalWind ? 'NATURE' : this.state.windStrength;
+          await this.sendControl('NaturalWind', {
+            airFlow: { windStrengthDetail: target },
+          });
+        });
+    } else {
+      const existing = this.accessory.getServiceById(Service.Switch, 'natural-wind');
+      if (existing) {
+        this.accessory.removeService(existing);
+      }
     }
 
     this.refreshState();
@@ -235,7 +281,10 @@ export class AirConditionerAccessory {
     const currentTemp  = nested(data, 'temperature', 'currentTemperature') as number | undefined;
     const targetTemp   = nested(data, 'temperature', 'targetTemperature') as number | undefined;
     const windStrength = nested(data, 'airFlow', 'windStrength') as string | undefined;
-    const swingUpDown  = nested(data, 'windDirection', 'windRotateUpDown') as boolean | undefined;
+    const swingUpDown  = (nested(data, 'windDirection', 'rotateUpDown')
+      ?? nested(data, 'windDirection', 'rotateLeftRight')) as boolean | undefined;
+    const runState     = nested(data, 'runState', 'currentState') as string | undefined;
+    const windDetail   = nested(data, 'airFlow', 'windStrengthDetail') as string | undefined;
 
     if (operation !== undefined) {
       this.state.isOn = operation === AC_OPERATION.ON;
@@ -262,7 +311,7 @@ export class AirConditionerAccessory {
     if (windStrength !== undefined && this.service.testCharacteristic(Characteristic.RotationSpeed)) {
       this.state.windStrength = windStrength;
       this.service.updateCharacteristic(
-        Characteristic.RotationSpeed, WIND_STRENGTH_TO_PCT[windStrength] ?? 100,
+        Characteristic.RotationSpeed, this.windStrengthPct[windStrength] ?? 100,
       );
     }
     if (swingUpDown !== undefined && this.service.testCharacteristic(Characteristic.SwingMode)) {
@@ -273,6 +322,17 @@ export class AirConditionerAccessory {
           ? Characteristic.SwingMode.SWING_ENABLED
           : Characteristic.SwingMode.SWING_DISABLED,
       );
+    }
+    if (runState !== undefined) {
+      this.state.hasFault = runState === 'ERROR';
+      this.service.updateCharacteristic(
+        Characteristic.StatusFault,
+        this.state.hasFault ? Characteristic.StatusFault.GENERAL_FAULT : Characteristic.StatusFault.NO_FAULT,
+      );
+    }
+    if (windDetail !== undefined && this.naturalWindService) {
+      this.state.naturalWind = windDetail === 'NATURE';
+      this.naturalWindService.updateCharacteristic(Characteristic.On, this.state.naturalWind);
     }
   }
 }
@@ -318,15 +378,22 @@ function parseCapabilities(profile?: Record<string, unknown>): Capabilities {
   const props = properties(profile);
   // No usable profile → expose everything, preserving the previous behaviour.
   if (Object.keys(props).length === 0) {
-    return { hasProfile: false, swing: true, windStrength: true };
+    return {
+      hasProfile: false, swingUpDown: true, swingLeftRight: true, windStrength: true, naturalWind: true,
+    };
   }
-  const swing = writable(props, 'windDirection', 'windRotateUpDown').isWritable;
-  const windStrength = writable(props, 'airFlow', 'windStrength').isWritable;
+  const swingUpDown = writable(props, 'windDirection', 'rotateUpDown').isWritable;
+  const swingLeftRight = writable(props, 'windDirection', 'rotateLeftRight').isWritable;
+  const windStrengthW = writable(props, 'airFlow', 'windStrength');
+  const windStrengthDetailW = writable(props, 'airFlow', 'windStrengthDetail');
   const jobModes = writable(props, 'airConJobMode', 'currentJobMode').wValues;
   return {
     hasProfile: true,
-    swing,
-    windStrength,
+    swingUpDown,
+    swingLeftRight,
+    windStrength: windStrengthW.isWritable,
+    windStrengthValues: windStrengthW.wValues,
+    naturalWind: windStrengthDetailW.isWritable && !!windStrengthDetailW.wValues?.includes('NATURE'),
     modes: jobModes ? new Set(jobModes) : undefined,
   };
 }
