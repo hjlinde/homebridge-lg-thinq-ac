@@ -82,9 +82,13 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
     accessory.context['device'] = device;
     const info = accessory.getService(this.Service.AccessoryInformation)
       ?? accessory.addService(this.Service.AccessoryInformation);
+    // Reuse the same serial as the main accessory (deviceId is already at HAP's
+    // 64-char SerialNumber limit, so a per-kind suffix would overflow it) — these
+    // accessories represent facets of the same physical unit, so sharing a serial
+    // is harmless and arguably more accurate than inventing distinct ones.
     info.setCharacteristic(this.Characteristic.Manufacturer, 'LG')
       .setCharacteristic(this.Characteristic.Model, device.modelName || 'AC')
-      .setCharacteristic(this.Characteristic.SerialNumber, `${device.deviceId}-${kind}`);
+      .setCharacteristic(this.Characteristic.SerialNumber, device.deviceId);
 
     if (existing) {
       this.api.updatePlatformAccessories([accessory]);
