@@ -50,11 +50,12 @@ Restart Homebridge after saving the configuration. Your air conditioners will ap
 - Fault status
 
 Fan-only and Dehumidify modes, and horizontal swing, don't fit into HomeKit's
-built-in Heater/Cooler controls, so each shows up as its own linked accessory
-tile (e.g. "Fan Only", "Dehumidify", "Horizontal Swing", "Natural Wind") next
-to the main climate tile — this is expected, not a bug. The main climate tile
-is pinned as the accessory's primary control, so a glance at the room view
-always shows the AC's actual state, with the auxiliary controls one tap away.
+built-in Heater/Cooler controls, so each is published as its own separate
+accessory (e.g. "Fan Only", "Dehumidify", "Horizontal Swing", "Natural Wind")
+alongside the main climate accessory — this is expected, not a bug, and is the
+only way HomeKit reliably shows a distinct name for each control (services on
+one accessory all display the accessory's own name in the Home app). Assigning
+all of them to the same room in the Home app groups their tiles together.
 
 ## How It Works
 

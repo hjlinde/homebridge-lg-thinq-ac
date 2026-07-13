@@ -8,8 +8,8 @@ import {
   Characteristic,
 } from 'homebridge';
 import { v4 as uuidv4 } from 'uuid';
-import { PLUGIN_NAME, PLATFORM_NAME } from './settings';
-import { AirConditionerAccessory } from './accessory';
+import { PLUGIN_NAME, PLATFORM_NAME, AC_MODE } from './settings';
+import { AirConditionerAccessory, parseCapabilities, AuxAccessories } from './accessory';
 import { ThinQApi, DeviceInfo, httpStatus, isTransient } from './api';
 
 const AC_DEVICE_TYPE = 'DEVICE_AIR_CONDITIONER';
@@ -58,6 +58,43 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
     this.cachedAccessories.set(accessory.UUID, accessory);
   }
 
+  /**
+   * Fan Only, Dehumidify, Horizontal Swing, and Natural Wind are each their own
+   * HomeKit accessory (see AuxAccessories in accessory.ts for why) — this
+   * creates/reuses/unregisters one of them based on whether the device's
+   * capabilities currently call for it.
+   */
+  private resolveAuxAccessory(
+    device: DeviceInfo, kind: string, displayName: string, needed: boolean,
+  ): PlatformAccessory | undefined {
+    const uuid = this.api.hap.uuid.generate(`${device.deviceId}:${kind}`);
+    const existing = this.cachedAccessories.get(uuid);
+
+    if (!needed) {
+      if (existing) {
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [existing]);
+        this.cachedAccessories.delete(uuid);
+      }
+      return undefined;
+    }
+
+    const accessory = existing ?? new this.api.platformAccessory(displayName, uuid);
+    accessory.context['device'] = device;
+    const info = accessory.getService(this.Service.AccessoryInformation)
+      ?? accessory.addService(this.Service.AccessoryInformation);
+    info.setCharacteristic(this.Characteristic.Manufacturer, 'LG')
+      .setCharacteristic(this.Characteristic.Model, device.modelName || 'AC')
+      .setCharacteristic(this.Characteristic.SerialNumber, `${device.deviceId}-${kind}`);
+
+    if (existing) {
+      this.api.updatePlatformAccessories([accessory]);
+    } else {
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+      this.cachedAccessories.set(uuid, accessory);
+    }
+    return accessory;
+  }
+
   private async initialize() {
     await this.discoverDevices();
     if (this.deviceAccessories.size > 0) {
@@ -96,7 +133,22 @@ export class LgThinQAcPlatform implements DynamicPlatformPlugin {
         );
       }
 
-      const acAccessory = new AirConditionerAccessory(this, accessory, device, profile);
+      const caps = parseCapabilities(profile);
+      const fanOnly = this.resolveAuxAccessory(
+        device, 'fan-only', `${device.alias} Fan Only`, !!caps.modes?.has(AC_MODE.FAN),
+      );
+      const dehumidify = this.resolveAuxAccessory(
+        device, 'dehumidify', `${device.alias} Dehumidify`, !!caps.modes?.has(AC_MODE.DRY),
+      );
+      const horizontalSwing = this.resolveAuxAccessory(
+        device, 'horizontal-swing', `${device.alias} Horizontal Swing`, caps.swingLeftRight,
+      );
+      const naturalWind = this.resolveAuxAccessory(
+        device, 'natural-wind', `${device.alias} Natural Wind`, caps.naturalWind,
+      );
+      const auxAccessories: AuxAccessories = { fanOnly, dehumidify, horizontalSwing, naturalWind };
+
+      const acAccessory = new AirConditionerAccessory(this, accessory, device, caps, auxAccessories);
       this.deviceAccessories.set(device.deviceId, acAccessory);
 
       if (existingAccessory) {

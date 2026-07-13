@@ -42,7 +42,7 @@ interface TempRange {
  * the whole accessory into "No Response" in HomeKit. When no profile is
  * available we fall back to exposing everything, matching prior behaviour.
  */
-interface Capabilities {
+export interface Capabilities {
   hasProfile: boolean;
   swingUpDown: boolean;
   swingLeftRight: boolean;
@@ -53,6 +53,22 @@ interface Capabilities {
   heatTempRange?: TempRange;
   coolTempRange?: TempRange;
   autoTempRange?: TempRange;
+}
+
+/**
+ * Fan Only, Dehumidify, Horizontal Swing, and Natural Wind are each published as
+ * their own separate HomeKit accessory (rather than linked services on the main
+ * one) because Home labels every service-tile on an accessory with the
+ * accessory's own display name, not each service's individual Name characteristic
+ * — confirmed against a real device, where linked services all showed up as the
+ * generic accessory name. Separate accessories are the only reliable way to get
+ * each function its own correctly-labeled tile.
+ */
+export interface AuxAccessories {
+  fanOnly?: PlatformAccessory;
+  dehumidify?: PlatformAccessory;
+  horizontalSwing?: PlatformAccessory;
+  naturalWind?: PlatformAccessory;
 }
 
 export class AirConditionerAccessory {
@@ -80,10 +96,10 @@ export class AirConditionerAccessory {
     private readonly platform: LgThinQAcPlatform,
     private readonly accessory: PlatformAccessory,
     private readonly device: DeviceInfo,
-    profile?: Record<string, unknown>,
+    caps: Capabilities,
+    private readonly auxAccessories: AuxAccessories,
   ) {
     const { Service, Characteristic } = platform;
-    const caps = parseCapabilities(profile);
     this.caps = caps;
     const windStrengthPct = caps.windStrengthValues
       ? buildWindStrengthPctTable(caps.windStrengthValues)
@@ -175,6 +191,9 @@ export class AirConditionerAccessory {
     // starting mode; onSet/updateState() re-apply them whenever mode changes.
     this.applyTempRangeProps(this.state.mode);
 
+    // HeaterCooler doesn't declare StatusFault as required or optional, so it must
+    // be registered explicitly or hap-nodejs logs a warning every time it's accessed.
+    this.service.addOptionalCharacteristic(Characteristic.StatusFault);
     this.service.getCharacteristic(Characteristic.StatusFault)
       .onGet(() => this.state.hasFault
         ? Characteristic.StatusFault.GENERAL_FAULT
@@ -212,9 +231,10 @@ export class AirConditionerAccessory {
       this.removeCharacteristicIfPresent(Characteristic.SwingMode);
     }
 
-    if (caps.swingLeftRight) {
-      this.horizontalSwingService = this.accessory.getServiceById(Service.Switch, 'horizontal-swing')
-        ?? this.accessory.addService(Service.Switch, `${device.alias} Horizontal Swing`, 'horizontal-swing');
+    if (this.auxAccessories.horizontalSwing) {
+      const auxAccessory = this.auxAccessories.horizontalSwing;
+      this.horizontalSwingService = auxAccessory.getService(Service.Switch)
+        ?? auxAccessory.addService(Service.Switch, `${device.alias} Horizontal Swing`);
       this.horizontalSwingService.setCharacteristic(Characteristic.Name, `${device.alias} Horizontal Swing`);
       this.horizontalSwingService.getCharacteristic(Characteristic.On)
         .onGet(() => this.state.swingLeftRight)
@@ -224,20 +244,14 @@ export class AirConditionerAccessory {
             windDirection: { rotateLeftRight: this.state.swingLeftRight },
           });
         });
-      this.service.addLinkedService(this.horizontalSwingService);
-      this.horizontalSwingService.addLinkedService(this.service);
-    } else {
-      const existing = this.accessory.getServiceById(Service.Switch, 'horizontal-swing');
-      if (existing) {
-        this.accessory.removeService(existing);
-      }
     }
 
     // Natural Wind is a separate LG "wind style" setting, not reachable via the
     // RotationSpeed slider, so it gets its own Switch service.
-    if (caps.naturalWind) {
-      this.naturalWindService = this.accessory.getServiceById(Service.Switch, 'natural-wind')
-        ?? this.accessory.addService(Service.Switch, `${device.alias} Natural Wind`, 'natural-wind');
+    if (this.auxAccessories.naturalWind) {
+      const auxAccessory = this.auxAccessories.naturalWind;
+      this.naturalWindService = auxAccessory.getService(Service.Switch)
+        ?? auxAccessory.addService(Service.Switch, `${device.alias} Natural Wind`);
       this.naturalWindService.setCharacteristic(Characteristic.Name, `${device.alias} Natural Wind`);
       this.naturalWindService.getCharacteristic(Characteristic.On)
         .onGet(() => this.state.naturalWind)
@@ -256,22 +270,16 @@ export class AirConditionerAccessory {
             });
           }
         });
-      this.service.addLinkedService(this.naturalWindService);
-      this.naturalWindService.addLinkedService(this.service);
-    } else {
-      const existing = this.accessory.getServiceById(Service.Switch, 'natural-wind');
-      if (existing) {
-        this.accessory.removeService(existing);
-      }
     }
 
     // Fan-only mode: HomeKit's TargetHeaterCoolerState is a fixed Auto/Heat/Cool
-    // enum with no slot for it, so it's represented as a linked Fanv2 service,
-    // following Apple's own AirPurifier<->Fan precedent for "one appliance, one
-    // mode outside the primary service's enum."
-    if (caps.modes?.has(AC_MODE.FAN)) {
-      this.fanService = this.accessory.getServiceById(Service.Fanv2, 'fan-only')
-        ?? this.accessory.addService(Service.Fanv2, `${device.alias} Fan Only`, 'fan-only');
+    // enum with no slot for it, so it's represented as its own Fanv2 accessory
+    // (see AuxAccessories doc comment for why a separate accessory rather than a
+    // linked service on the main one).
+    if (this.auxAccessories.fanOnly) {
+      const auxAccessory = this.auxAccessories.fanOnly;
+      this.fanService = auxAccessory.getService(Service.Fanv2)
+        ?? auxAccessory.addService(Service.Fanv2, `${device.alias} Fan Only`);
       this.fanService.setCharacteristic(Characteristic.Name, `${device.alias} Fan Only`);
 
       this.fanService.getCharacteristic(Characteristic.Active)
@@ -313,23 +321,16 @@ export class AirConditionerAccessory {
           .onGet(() => this.windStrengthPct[this.state.windStrength] ?? 100)
           .onSet(async (value: CharacteristicValue) => this.setWindStrengthFromPct(value));
       }
-
-      this.service.addLinkedService(this.fanService);
-      this.fanService.addLinkedService(this.service);
-    } else {
-      const existing = this.accessory.getServiceById(Service.Fanv2, 'fan-only');
-      if (existing) {
-        this.accessory.removeService(existing);
-      }
     }
 
     // Dehumidify mode: same rationale as Fan-only above. Modeled as a Switch
     // (not HumidifierDehumidifier) because that service requires
     // CurrentRelativeHumidity, and this device profile has no humidity sensor
     // data to back it — faking a sensor reading would be dishonest.
-    if (caps.modes?.has(AC_MODE.DRY)) {
-      this.dehumidifyService = this.accessory.getServiceById(Service.Switch, 'dehumidify')
-        ?? this.accessory.addService(Service.Switch, `${device.alias} Dehumidify`, 'dehumidify');
+    if (this.auxAccessories.dehumidify) {
+      const auxAccessory = this.auxAccessories.dehumidify;
+      this.dehumidifyService = auxAccessory.getService(Service.Switch)
+        ?? auxAccessory.addService(Service.Switch, `${device.alias} Dehumidify`);
       this.dehumidifyService.setCharacteristic(Characteristic.Name, `${device.alias} Dehumidify`);
 
       this.dehumidifyService.getCharacteristic(Characteristic.On)
@@ -356,14 +357,6 @@ export class AirConditionerAccessory {
           );
           this.syncAuxServiceCharacteristics();
         });
-
-      this.service.addLinkedService(this.dehumidifyService);
-      this.dehumidifyService.addLinkedService(this.service);
-    } else {
-      const existing = this.accessory.getServiceById(Service.Switch, 'dehumidify');
-      if (existing) {
-        this.accessory.removeService(existing);
-      }
     }
 
     this.refreshState();
@@ -441,6 +434,11 @@ export class AirConditionerAccessory {
   private applyTempRangeProps(mode: string) {
     const { Characteristic } = this.platform;
     const props = this.tempRangeForMode(mode);
+    // Seed a value that's valid before narrowing minValue/maxValue, so hap-nodejs's
+    // own value/props reconciliation inside setProps() never has to correct a stale
+    // default value (harmless — it self-heals — but avoidable entirely this way).
+    this.service.updateCharacteristic(Characteristic.CoolingThresholdTemperature, this.state.targetTempC);
+    this.service.updateCharacteristic(Characteristic.HeatingThresholdTemperature, this.state.targetTempC);
     this.service.getCharacteristic(Characteristic.CoolingThresholdTemperature).setProps(props);
     this.service.getCharacteristic(Characteristic.HeatingThresholdTemperature).setProps(props);
   }
@@ -617,7 +615,7 @@ function writableRange(
   return { min, max, step: step ?? 0.5 };
 }
 
-function parseCapabilities(profile?: Record<string, unknown>): Capabilities {
+export function parseCapabilities(profile?: Record<string, unknown>): Capabilities {
   const props = properties(profile);
   // No usable profile → expose everything, preserving the previous behaviour.
   if (Object.keys(props).length === 0) {
